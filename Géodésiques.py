@@ -37,3 +37,30 @@ def exp_parallelization(t_0, T, N, p_0, v_0, w):
         exp_p[i] = g_t[-1]
     return exp_p
 
+#Deuxiéme version : obtenir les géodésiques à partir d'une seule
+
+def geodesic_2(N, h, p_0, v_0, t_1, p_1, v_1):
+    #On construit une géodésique 
+    F = lambda y,t : v_0*P(y)/P(p_0)
+    t = np.linspace(0, N*h, N)
+    g_0 = sc.integrate.odeint(F, p_0, t)
+    
+    #On reparamétrise la géodésique pour en obtenir une autre
+    data_g = np.array([])
+    data_t = np.array([])
+    
+    b = t[np.argmin(np.abs(g_0-p_1))]
+    a = v_1*P(p_0)/(v_0*P(p_1))
+    
+    for time in t:
+        t_new = a*time+b
+        if t_new < t[-1]:
+            ind = np.argmin(np.abs(t-t_new))
+            data_t = np.append(data_t, time+t_1)
+            data_g = np.append(data_g, g_0[ind])
+    
+    return data_t, data_g
+
+def exp_parallelization_2(N, h, p_0, v_0, t_1, p_1, v_1, w):
+    t,g = geodesic_2(N, h, p_0, v_0, t_1, p_1, v_1)
+    return t+w/v_1, g
