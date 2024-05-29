@@ -88,12 +88,18 @@ def geodesic(t0,p0,v0,P, t_ij, N,T):
 def prior(t0,t0m,var_t0,p0,p0m,var_p0,v0,v0m,var_v0,xi,var_xi,tau,var_tau):
     prior = 0
     prior += -((t0-t0m)**2)/(2*var_t0)
+    prior += torch.log(torch.tensor(2*torch.pi*var_t0))/2
     prior += -((p0-p0m)**2)/(2*var_p0)
+    prior += torch.log(torch.tensor(2*torch.pi*var_p0))/2
     prior += -((v0-v0m)**2)/(2*var_v0)
+    prior += torch.log(torch.tensor(2*torch.pi*var_v0))/2
     for xi_i in xi:
         prior += -(xi_i**2)/(2*var_xi)
+        prior += torch.log(torch.tensor(2*torch.pi*var_xi))/2
     for tau_i in tau:
         prior += -(tau_i**2)/(2*var_tau)
+        prior += torch.log(torch.tensor(2*torch.pi*var_tau))/2
+
     return prior
 
 
@@ -176,11 +182,11 @@ class langevin:
 
         zlist = [z.t0,z.p0,z.v0]
         for i in range(self.nb_patients):
-            zlist.append(z.alpha[i])
+            zlist.append(np.log(z.alpha[i]))
         for i in range(self.nb_patients):
             zlist.append(z.tau[i])
+        
         z_torch = torch.tensor(zlist,requires_grad = True)
-
         theta_torch = torch.tensor([self.theta.t0_m,self.theta.p0_m,self.theta.v0_m,self.theta.var_xi,self.theta.var_tau,self.theta.var_eps],requires_grad = True)
 
         psi_t = torch.tensor(data_t)
@@ -188,7 +194,9 @@ class langevin:
             psi_t[i] = z_torch[3+i]*(psi_t[i] - z_torch[0]- z_torch[self.nb_patients+3+i])
 
         gammai = geodesic(z_torch[0],z_torch[1],z_torch[2],self.metric,psi_t,N_geo,100*self.theta.var_xi*max(max(data_t)))
-        log_like_ycondz = -1/(2*theta_torch[5]) * torch.sum((torch.tensor(data_y) - gammai)**2)
+        aux = torch.sum((torch.tensor(data_y) - gammai)**2)
+        print("S : ",aux)
+        log_like_ycondz = -1/(2*theta_torch[5]) * aux + torch.log(2*torch.pi*z_torch[5])/2
         log_like_prior = prior(z.t0,theta_torch[0],self.var_t0,z.p0,theta_torch[1],self.var_p0,z.v0,theta_torch[2],self.var_v0,np.exp(z.alpha),theta_torch[3],z.tau,theta_torch[4])
         
         somme = log_like_prior + log_like_ycondz
@@ -208,7 +216,6 @@ class langevin:
         
         update_theta = np.sqrt(2*stepsize/m)*torch.normal(torch.zeros(6),var_walk_noise) - grad_sum
 
-        print(update_theta)
         self.theta.ajoute(update_theta)
 
         update_z = [np.sqrt(2*stepsize)*noise[i] - stepsize*grad_z_theta[i][0] for i in range(m)]
@@ -227,11 +234,12 @@ def ULA(data_y,data_t,theta_init,metric,var_p0,var_t0,var_v0,var_walk_noise,nb_p
 
     for i in range(nb_iter):
         ula.ULA_step(var_walk_noise,stepsize[i],data_t,data_y,N_geo)
+        ula.theta.show()
 
     return ula.theta
 
 
-param = parametres(0.5,0.5,0.5,0.1,.1,.1)
-test = langevin(param,.1,.1,.1,3)
+param = parametres(0.5,0.5,0.5,.6,.1,10)
 t = [[1.,2.,3.],[2.,3.,4.],[4.,5.,6.]]
 y = [[0.1,0.2,0.3],[0.3,.4,.5],[0.3,0.38,.45]]
+ULA(t,y,param,lambda x:x*(1-x),.1,.1,.1,.1,1,100,10,[.001 for i in range(20)])
