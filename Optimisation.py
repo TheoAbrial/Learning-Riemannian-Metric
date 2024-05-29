@@ -3,17 +3,25 @@ import torch
 import scipy.integrate
 
 class parametres:
-    def __init__(self,t0_mean,p0_mean,v0_mean,sigma_xi,sigma_tau,sigma_eps):
-        self.t0_mean = t0_mean
-        self.p0_mean = p0_mean
-        self.v0_mean = v0_mean
-        self.sigma_xi = sigma_xi
-        self.sigma_tau =sigma_tau
-        self.sigma_eps = sigma_eps
+    def __init__(self,t0_mean,p0_mean,v0_mean,var_xi,var_tau,var_eps):
+        self.t0_m = t0_mean
+        self.p0_m = p0_mean
+        self.v0_m = v0_mean
+        self.var_xi = var_xi
+        self.var_tau =var_tau
+        self.var_eps = var_eps
 
     def show(self):
-        print("t0_mean :" + str(self.t0_mean) + "   |   p0_mean :" + str(self.p0_mean) + "   |   v0_mean :" + str(self.v0_mean) + "\n")
-        print("sigma_xi :" + str(self.sigma_xi) + "   |   sigma_tau :" + str(self.sigma_tau)  + "   |   sigma_eps :" + str(self.sigma_eps)  + "\n")
+        print("t0_mean :" + str(self.t0_m) + "   |   p0_mean :" + str(self.p0_m) + "   |   v0_mean :" + str(self.v0_m) + "\n")
+        print("var_xi :" + str(self.var_xi) + "   |   var_tau :" + str(self.var_tau)  + "   |   var_eps :" + str(self.var_eps)  + "\n")
+
+    def ajoute(self,tensor):
+        self.t0_m += tensor[0]
+        self.p0_m += tensor[1]
+        self.v0_m += tensor[2]
+        self.var_xi += tensor[3]
+        self.var_tau +=tensor[4]
+        self.var_eps += tensor[5]
 
 
 class latent:
@@ -24,10 +32,20 @@ class latent:
         self.alpha = alpha
         self.tau =tau
 
+
     def show(self):
         print("t0 :" + str(self.t0) + "   |   p0 :" + str(self.p0) + "   |   v0 :" + str(self.v0) )
         print("liste_alpha : ", self.alpha)
         print("liste_tau : ", self.tau )
+
+    def ajoute(self,tensor,nb_patients):
+        self.t0 += tensor[0]
+        self.p0+= tensor[1]
+        self.v0 += tensor[2]
+        for i in range(nb_patients):
+            self.alpha[i] += tensor[3+i]
+            self.tau[i] +=tensor[3+i+nb_patients]
+
     
 
 def compute_polynomial(roots,x):
@@ -37,56 +55,73 @@ def compute_polynomial(roots,x):
     return P_x
 
 
-def geodesic(t_0,p_0, v_0,P, t_ij, N):
+def euler1(F,p0,pas,N,dir):
+    p = torch.zeros(N)
+    p[0] = p0
+    for i in range(N-1):
+        p_act = p[i].clone()
+        p[i+1] = p_act + dir*pas * F(p_act)
+    return p
 
-    #Renvoie gamma_0(t_ij) ou t_ij est un tab de temps en entrée et g=1/P² est la metrique
-    F = lambda y,t : v_0*P(y)/P(p_0)
+
+def geodesic(t0,p0,v0,P, t_ij, N,T):
+    F = lambda y:v0 * P(y)/P(p0)
 
     #resoud l'equation pour la geodesique entre t_0 et t_0 + max(t_ij) pour des espacements reguliers
-    T = torch.max(t_ij)
-    T = T +0.001
-    t = np.linspace(t_0, t_0+T, N)
-    pas = (T-t_0)/N  
-    y0 = scipy.integrate.odeint(F, p_0, t)
-    y_rev = scipy.integrate.odeint(F, p_0, -t+2*t_0)
-    y = np.concatenate((np.concatenate(np.flip(y_rev)), np.delete(y0,[0])))
-    print(y)
+    pas = (T-t0)/N  
+    y0 = euler1(F, p0,pas,N,1)
+    y_rev = euler1(F,p0,pas,N,-1)
+
+    y = torch.cat((torch.flip(y_rev,[0]), y0[1:]))
     #Calcule gamma(t_ij) en interpolant la solution precedente avec des droites 
-    gamma = np.zeros_like(t_ij)
+    gamma = torch.zeros_like(t_ij)
     for i in range(len(gamma)):
         for j in range(len(gamma[0])):
-            avancement = (t_ij[i][j]-t_0)/pas
+            avancement = (t_ij[i][j]-t0)/pas
             indice_proche = (int)(avancement) + N - 1
-            gamma[i][j] = y[indice_proche]
+            gamma[i][j] = y[indice_proche].clone()
             if(indice_proche != 2*N-2):
-                gamma[i][j]+= (t_ij[i][j]-t_0-indice_proche)*pas*(y[indice_proche+1]-y[indice_proche])
-                
-    print(gamma)
+                gamma[i][j]= gamma[i][j] + (t_ij[i][j]-t0-indice_proche)*pas*(y[indice_proche+1]-y[indice_proche])
     return gamma
 
 
+def prior(t0,t0m,var_t0,p0,p0m,var_p0,v0,v0m,var_v0,xi,var_xi,tau,var_tau):
+    prior = 0
+    prior += -((t0-t0m)**2)/(2*var_t0)
+    prior += -((p0-p0m)**2)/(2*var_p0)
+    prior += -((v0-v0m)**2)/(2*var_v0)
+    for xi_i in xi:
+        prior += -(xi_i**2)/(2*var_xi)
+    for tau_i in tau:
+        prior += -(tau_i**2)/(2*var_tau)
+    return prior
+
+
 class langevin:
-    def __init__(self,theta_init,sigma_p0,sigma_t0,sigma_v0,nb_patients):
+    def __init__(self,theta_init,var_p0,var_t0,var_v0,nb_patients):
         self.theta = theta_init
-        self.sigma_p0 = sigma_p0
-        self.sigma_v0 = sigma_v0
-        self.sigma_t0 = sigma_t0
+        self.var_p0 = var_p0
+        self.var_v0 = var_v0
+        self.var_t0 = var_t0
         self.nb_patients = nb_patients
-        #la metrique sera de la forme 1/P^2 où P est un polynome unitaire qu'on representera par la liste de ses racines (en dehors de ]0,1[ )
-        self.metric = []
+        #la metrique est congorme et repesentée par l'inverse de sa racine carrée
+        self.metric = lambda x:1
         #future liste des samplings
         self.z_array = []
 
     def set_metric_logistic(self):
-        self.metric = np.array([0,1])
+        self.metric = lambda x:x*(1-x)
+
+    def set_metric(self,metric):
+        self.metric = metric
 
     def init_z(self):
         #initialisation du sampling (choix arbitraire de gaussiennes)
-        p0 = np.random.normal(self.theta.p0_mean,self.sigma_p0,1)[0]
-        t0 = np.random.normal(self.theta.t0_mean,self.sigma_t0,1)[0]
-        v0 = np.random.normal(self.theta.v0_mean,self.sigma_v0,1)[0]
-        alpha = np.exp(np.random.normal(0,self.theta.sigma_xi,self.nb_patients))
-        tau = np.random.normal(0,self.theta.sigma_tau,self.nb_patients)
+        p0 = np.random.normal(self.theta.p0_m,self.var_p0,1)[0]
+        t0 = np.random.normal(self.theta.t0_m,self.var_t0,1)[0]
+        v0 = np.random.normal(self.theta.v0_m,self.var_v0,1)[0]
+        alpha = np.exp(np.random.normal(0,self.theta.var_xi,self.nb_patients))
+        tau = np.random.normal(0,self.theta.var_tau,self.nb_patients)
 
         self.z_array.append(latent(p0,t0,v0,alpha,tau))
         
@@ -97,13 +132,9 @@ class langevin:
 
         #ligne a retirer plus tard (quand on optimisera la metrique)
         self.set_metric_logistic()
-        P = lambda x: np.prod(np.array([(x-a) for a in self.metric]))
 
-        z_torch = torch.tensor(np.array([z.p0,z.v0]), requires_grad=True)
-
-        P_p0 = 1
-        for a in self.metric:
-            P_p0 *= z_torch[0]-a
+        z_torch = torch.tensor([z.p0,z.v0], requires_grad=True)
+        P_p0 =self.metric(z_torch[0])
 
         C0 = z_torch[1]/P_p0
         C0.backward()
@@ -116,13 +147,13 @@ class langevin:
             psi_t[i] = psi[i](psi_t[i])
             
 
-        gamma0 = geodesic(z.t0,z.p0,z.v0,P,psi_t,N_geo)
+        gamma0 = geodesic(z.t0,z.p0,z.v0,self.metric,psi_t,N_geo)
 
         sum_grad = 0
         
         for i in range(self.nb_patients):
             for j in range(len(data_t[0])):
-                P_gamma0 = P(gamma0[i][j])
+                P_gamma0 = self.metric(gamma0[i][j])
 
                 grad_gamma0= P_gamma0 * (grad_C0*psi_t[i][j] + grad_C1)
                 grad_gamma0 = torch.cat((grad_gamma0,torch.zeros(2*self.nb_patients+1)))
@@ -137,15 +168,70 @@ class langevin:
                 sum_grad += grad_gammai * (data_y[i][j] - gamma0[i][j])
                 
         return sum_grad
+
+    #grad_z q(y,z|theta) , grad_theta q(y,z|theta)
+    def compute_autograd(self,z,data_t,data_y,N_geo):
+        self.set_metric_logistic()
+
+
+        zlist = [z.t0,z.p0,z.v0]
+        for i in range(self.nb_patients):
+            zlist.append(z.alpha[i])
+        for i in range(self.nb_patients):
+            zlist.append(z.tau[i])
+        z_torch = torch.tensor(zlist,requires_grad = True)
+
+        theta_torch = torch.tensor([self.theta.t0_m,self.theta.p0_m,self.theta.v0_m,self.theta.var_xi,self.theta.var_tau,self.theta.var_eps],requires_grad = True)
+
+        psi_t = torch.tensor(data_t)
+        for i in range(len(data_t)):
+            psi_t[i] = z_torch[3+i]*(psi_t[i] - z_torch[0]- z_torch[self.nb_patients+3+i])
+
+        gammai = geodesic(z_torch[0],z_torch[1],z_torch[2],self.metric,psi_t,N_geo,100*self.theta.var_xi*max(max(data_t)))
+        log_like_ycondz = -1/(2*theta_torch[5]) * torch.sum((torch.tensor(data_y) - gammai)**2)
+        log_like_prior = prior(z.t0,theta_torch[0],self.var_t0,z.p0,theta_torch[1],self.var_p0,z.v0,theta_torch[2],self.var_v0,np.exp(z.alpha),theta_torch[3],z.tau,theta_torch[4])
         
+        somme = log_like_prior + log_like_ycondz
+        somme.backward()
+        return [z_torch.grad,theta_torch.grad]
+    
+    def ULA_step(self,var_walk_noise,stepsize,data_t,data_y,N_geo):
+        m = len(self.z_array)
+        noise = [torch.normal(torch.zeros(3+2*self.nb_patients),torch.tensor(var_walk_noise)) for i in range(m)]
+
+        grad_z_theta = [self.compute_autograd(z,data_t,data_y,N_geo) for z in self.z_array]
+
+        grad_sum = torch.zeros(6)
+        for i in range(m):
+            grad_sum += grad_z_theta[i][1]
+
+        
+        update_theta = np.sqrt(2*stepsize/m)*torch.normal(torch.zeros(6),var_walk_noise) - grad_sum
+
+        print(update_theta)
+        self.theta.ajoute(update_theta)
+
+        update_z = [np.sqrt(2*stepsize)*noise[i] - stepsize*grad_z_theta[i][0] for i in range(m)]
+
+        for i in range(m):
+            self.z_array[i].ajoute(update_z[i],self.nb_patients)
 
 
+
+def ULA(data_y,data_t,theta_init,metric,var_p0,var_t0,var_v0,var_walk_noise,nb_part,N_geo,nb_iter,stepsize):
+    nb_patients = len(data_t)
+    ula = langevin(theta_init,var_p0,var_t0,var_v0,nb_patients)
+    ula.set_metric(metric)
+    for i in range(nb_part):
+        ula.init_z()
+
+    for i in range(nb_iter):
+        ula.ULA_step(var_walk_noise,stepsize[i],data_t,data_y,N_geo)
+
+    return ula.theta
 
 
 param = parametres(0.5,0.5,0.5,0.1,.1,.1)
 test = langevin(param,.1,.1,.1,3)
-test.init_z()
-test.z_array[0].show()
 t = [[1.,2.,3.],[2.,3.,4.],[4.,5.,6.]]
 y = [[0.1,0.2,0.3],[0.3,.4,.5],[0.3,0.38,.45]]
-test.compute_grad(test.z_array[0],t,y,50)
