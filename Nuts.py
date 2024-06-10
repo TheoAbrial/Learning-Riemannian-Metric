@@ -506,21 +506,6 @@ plot_geo(data_t[0], geo_nuts)
 plt.show()
 
 
-print("test")
-
-z = latent(1., 2., 3., [1., 2., 3.], [4., 5., 6.])
-z1 = z.clone()
-
-z.show()
-z1.show()
-
-z.t0 += 1
-
-z.show()
-z1.show()
-
-
-
 
 
 
