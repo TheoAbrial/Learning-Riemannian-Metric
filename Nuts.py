@@ -284,7 +284,7 @@ class MCMC:
         #print("after Leapfrog :")
         #z.show()
 
-    def BuildTree(self, z, r, u, v, j, eps):
+    def BuildTree(self, z, r, log_u, v, j, eps):
         Delta_max = 1000
         
         if j == 0:
@@ -295,13 +295,19 @@ class MCMC:
 
             L_z_bis = -(self.nb_patients * self.nb_mesures * self.theta.logvar_eps)/2 - self.compute_err(z_bis.t0, z_bis.p0, z_bis.v0, z_bis.xi, z_bis.tau)/(2*torch.exp(self.theta.logvar_eps)) + prior(z_bis.t0, self.theta.t0_m, self.var_t0, z_bis.p0, self.theta.p0_m, self.var_p0, z_bis.v0, self.theta.v0_m, self.var_v0, z_bis.xi, self.theta.logvar_xi, z_bis.tau, self.theta.logvar_tau)
             r_bis_norm = r_bis.norm()
-            n_bis = indic(torch.log(u) <= L_z_bis - r_bis_norm/2)
-            s_bis = indic(L_z_bis - r_bis_norm/2 > torch.log(u) - Delta_max)
+            n_bis = indic(log_u <= L_z_bis - r_bis_norm/2)
+            s_bis = indic(L_z_bis - r_bis_norm/2 > log_u - Delta_max)
+
+            #print("Affiche_begin")
+            #print("L_z_bis = " + str(L_z_bis))
+            #print("r_bis_norm = " + str(r_bis_norm))
+            #print("log_u = " + str(log_u))
+            #print("Affiche_end")
 
             return z_bis.clone(), r_bis.clone(), z_bis.clone(), r_bis.clone(), z_bis.clone(), n_bis, s_bis
 
         else:
-            z_minus, r_minus, z_plus, r_plus, z_bis, n_bis, s_bis = self.BuildTree(z, r, u, v, j-1, eps)
+            z_minus, r_minus, z_plus, r_plus, z_bis, n_bis, s_bis = self.BuildTree(z, r, log_u, v, j-1, eps)
             #print("debug1")
             #z_plus.show()
             #z_minus.show()
@@ -310,12 +316,12 @@ class MCMC:
             if s_bis == 1:
                 if (v == -1):
                     #print("v = " + str(v))
-                    z_minus_bis, r_minus_bis, _, _, z_terce_bis, n_terce, s_terce = self.BuildTree(z_minus, r_minus, u, v, j-1, eps)
+                    z_minus_bis, r_minus_bis, _, _, z_terce_bis, n_terce, s_terce = self.BuildTree(z_minus, r_minus, log_u, v, j-1, eps)
                     z_minus = z_minus_bis.clone()
                     r_minus = r_minus_bis.clone()
                 else:
                     #print("v = " + str(v))
-                    _, _, z_plus_bis, r_plus_bis, z_terce_bis, n_terce, s_terce = self.BuildTree(z_plus, r_plus, u, v, j-1, eps)
+                    _, _, z_plus_bis, r_plus_bis, z_terce_bis, n_terce, s_terce = self.BuildTree(z_plus, r_plus, log_u, v, j-1, eps)
                     z_plus = z_plus_bis.clone()
                     r_plus = r_plus_bis.clone()
                 if (n_terce > 0) and (rd.random() <= n_terce/(n_bis + n_terce)):
@@ -354,7 +360,7 @@ class MCMC:
         L = -(self.nb_patients * self.nb_mesures * self.theta.logvar_eps)/2 - self.err/(2*torch.exp(self.theta.logvar_eps)) + prior(z_prev.t0, self.theta.t0_m, self.var_t0, z_prev.p0, self.theta.p0_m, self.var_p0, z_prev.v0, self.theta.v0_m, self.var_v0, z_prev.xi, self.theta.logvar_xi, z_prev.tau, self.theta.logvar_tau)
 
         r0 = randomize(self.nb_patients, 1, 1, 1, 1, 1)
-        u = rd.random()*torch.exp(L - r0.norm())
+        log_u = torch.log(torch.tensor(rd.random())) + (L - r0.norm())
         z_minus = latent(z_prev.t0.clone().detach(), z_prev.p0.clone().detach(), z_prev.v0.clone().detach(), z_prev.xi, z_prev.tau)
         z_plus = latent(z_prev.t0.clone().detach(), z_prev.p0.clone().detach(), z_prev.v0.clone().detach(), z_prev.xi, z_prev.tau)
         z = latent(z_prev.t0.clone().detach(), z_prev.p0.clone().detach(), z_prev.v0.clone().detach(), z_prev.xi, z_prev.tau)
@@ -368,9 +374,9 @@ class MCMC:
             print("j : " + str(j))
             vj = 2*int(2*rd.random()) - 1
             if (vj == -1):
-                z_minus, r_minus, _, _, z_bis, n_bis, s_bis = self.BuildTree(z_minus, r_minus, u, vj, j, eps)
+                z_minus, r_minus, _, _, z_bis, n_bis, s_bis = self.BuildTree(z_minus, r_minus, log_u, vj, j, eps)
             else:
-                _, _, z_plus, r_plus, z_bis, n_bis, s_bis = self.BuildTree(z_plus, r_plus, u, vj, j, eps) 
+                _, _, z_plus, r_plus, z_bis, n_bis, s_bis = self.BuildTree(z_plus, r_plus, log_u, vj, j, eps) 
             if (s_bis == 1):
                 if (rd.random() <= min(1, n_bis/n)):
                     z.set(z_bis)
@@ -483,9 +489,9 @@ data_t = [[i*step_t for i in range(nb_mesures)] for j in range(nb_patients)]
 
 data_y, geo = generate_data(data_t, theta, var_t0, var_p0, var_v0)
 
-eps = 0.0001
-N = 300
-Nb = 100
+eps = 0.001
+N = 50
+Nb = 25
 beta = 0.65
 
 
@@ -504,6 +510,8 @@ plot_data(data_t, data_y_nuts)
 plot_geo(data_t[0], geo_nuts)
 
 plt.show()
+
+
 
 
 
