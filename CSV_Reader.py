@@ -1,6 +1,6 @@
 import csv
 
-def read(file_name, dim):
+def read(file_name, dim, nb_max_indiv):
     with open(file_name, 'r') as csvfile:
         reader = csv.reader(csvfile)
 
@@ -25,9 +25,10 @@ def read(file_name, dim):
                         j = j + 1
 
                     if (k == -1):
-                        list_id.append(identifiant)
-                        data_t.append([time])
-                        data_y.append([value])
+                        if (len(list_id) < nb_max_indiv):
+                            list_id.append(identifiant)
+                            data_t.append([time])
+                            data_y.append([value])
                     else:
                         data_t[k].append(time)
                         data_y[k].append(value)
@@ -54,9 +55,10 @@ def read(file_name, dim):
                         j = j + 1
 
                     if (k == -1):
-                        list_id.append(identifiant)
-                        data_t.append([time])
-                        data_y.append([value])
+                        if (len(list_id) < nb_max_indiv):
+                            list_id.append(identifiant)
+                            data_t.append([time])
+                            data_y.append([value])
                     else:
                         data_t[k].append(time)
                         data_y[k].append(value)
@@ -64,6 +66,6 @@ def read(file_name, dim):
                 i = i + 1
         return data_t, data_y
 
-data_t, data_y = read("test.csv", 1)
+data_t, data_y = read("test.csv", 1, 20)
 print(data_t)
 print(data_y)
