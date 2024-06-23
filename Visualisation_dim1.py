@@ -68,7 +68,7 @@ def complete_disease_NUTS(data_t_train, data_t_incomplete, data_t_complete, data
     nuts = NUTS_light(data_t, data_y, theta_init, param_nuts.step_size, param_nuts.N, param_nuts.Nb, param_nuts.limit_j)
 
     
-    nb_moy = 10
+    nb_moy = param_nuts.N - param_nuts.Nb
     z = nuts.z_array[(-nb_moy):]
     entier = len(z[0].xi[nb_patients_train:])
     t0 = 0
