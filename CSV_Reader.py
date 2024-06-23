@@ -65,7 +65,8 @@ def read(file_name, dim, nb_max_indiv):
                 
                 i = i + 1
         return data_t, data_y
-
+'''
 data_t, data_y = read("test.csv", 1, 20)
 print(data_t)
 print(data_y)
+'''
