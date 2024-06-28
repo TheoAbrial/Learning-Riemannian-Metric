@@ -10,11 +10,10 @@ import torch
 #beta -> (dim_geo-1,dim_pca)
 #s_i -> (1,dim_pca)
 
-
-
 def minus_log_prior_ind(z_ind,theta_var):
 
     z_ind_squarred=z_ind**2 #tau_i^2, xi_i^2, s^2
+
     return torch.sum(z_ind_squarred[:2] / (2*torch.exp(theta_var[0:2])) + theta_var[0:2]/2) + torch.sum(z_ind_squarred[2:]) 
 
 def minus_log_prior_pop(z_pop,theta_pop,var_pop,dim_geo):
@@ -24,14 +23,14 @@ def minus_log_prior_pop(z_pop,theta_pop,var_pop,dim_geo):
 
 def minus_log_prior(z_rec,z_pop,theta_var,theta_pop,var_pop,dim_geo):
     prior_z_ind = torch.func.vmap(lambda z_ind:minus_log_prior_ind(z_ind,theta_var))(z_rec)
-    return minus_log_prior_pop(z_pop,theta_pop,var_pop,dim_geo)
+    return torch.sum(prior_z_ind) + minus_log_prior_pop(z_pop,theta_pop,var_pop,dim_geo)
 
 
 def potentiel(exp_para,time,y,mask,var_param,dim_geo:int,dim_pca:int):
     nb_max_measures = len(time[0])
     nb_patients = len(time)
     
-    def U(z_line,theta):   
+    def U(z_line,theta,tab_loss,ajoute):   
         #print("z_line",z_line)
         t0 = z_line[0]
         p0 = z_line[1:1+dim_geo]
@@ -59,12 +58,20 @@ def potentiel(exp_para,time,y,mask,var_param,dim_geo:int,dim_pca:int):
         #print("altered_time",altered_time)
         #print("p0",p0)
         #print("w",w)
-        #print("first exp_para",exp_para(param_metric,p0,v0,w[0],altered_time[0]))
+        #print("first exp_para",exp_para(param_metric,t0,p0,v0,w[0],altered_time[0]))
 
         vector_mask = torch.vmap(torch.vmap(lambda bool:torch.Tensor.repeat(bool,dim_geo)))(mask)
         #print("mask",vector_mask)
-        evaluation = torch.vmap(lambda t_i,w_i,mask_i:mask_i*exp_para(param_metric,p0,v0,w_i,t_i) + (1-mask_i)*p0)(time,w,vector_mask)
+        evaluation = torch.vmap(lambda t_i,w_i,mask_i:mask_i*exp_para(param_metric,t0,p0,v0,w_i,t_i) + (1-mask_i)*p0)(altered_time,w,vector_mask)
         #print("\n eval",evaluation)
+        
+        loss =torch.sum(((y-evaluation)**2))
+        if ajoute:
+            tab_loss[0]+=1
+            if(((int)(tab_loss[0]))%200 == 0):
+                #print("eval",evaluation)
+                tab_loss.append(loss)
+                print("loss:",loss)
 
         minus_log_posterior = torch.sum(((y-evaluation)**2)/(2*torch.exp(theta_var[2])) + theta_var[2]/2)
 
